@@ -125,7 +125,25 @@ function applyTransformations(shape) {
 
 // Note: The frame appears to be 2x2, base object creation on that.
 function makeObstacle() {
+    var gap = 0.5;
+    var margin = 0.2;
 
+    var gapCenterMax = 1.0 - margin - (gap/2);
+    var gapCenterMin = -1.0 + margin + (gap/2);
+
+    //Math.floor(Math.random() * (max - min + 1)) + min
+    var gapCenter = Math.random() * (gapCenterMax - gapCenterMin + 1) + gapCenterMin;
+    var topMin = gapCenter + (gap/2);
+    var bottomMax = gapCenter - (gap/2);
+    var topCenter = (1.0 + topMin) / 2;
+    var topHeight = 1.0 - topMin;
+    var bottomCenter = (-1.0 + bottomMax) / 2;
+    var bottomHeight = -1.0 - bottomMax;
+
+    var top = makeRectangularPrism("obstacle", vec3(3,topCenter,0), vec3(.1,topHeight,.15), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,1,0,1));
+    var bottom = makeRectangularPrism("obstacle", vec3(3,bottomCenter,0), vec3(.1,bottomHeight,.15), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,1,0,1));
+    obstacles.push(top);
+    obstacles.push(bottom);
 }
 
 var canvas;
@@ -167,18 +185,7 @@ window.onload = function init()
     translationLoc = gl.getUniformLocation(program, "translation");
 
     // makeRectangularPrism(objclass, center, dimensions, rotation, translationVector, rotationVector, color) {
-    obstacles = [
-        makeRectangularPrism("cube", vec3(2,0,0.025), vec3(.1,2,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,1,0,1)),
-        makeRectangularPrism("cube", vec3(3,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(4,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(5,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(6,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(7,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(8,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(9,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(10,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
-        makeRectangularPrism("cube", vec3(11,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1))
-    ];
+    obstacles = [];
 
     border = [
         makeRectangularPrism("border", vec3(0,-1,0), vec3(5,.1,2), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(0,0,0,1)),
@@ -195,6 +202,10 @@ window.onload = function init()
 async function render()
 {
     gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    if (frameCount % (frameRate * 1.5) == 0) {
+        makeObstacle();
+    }
 
     if (player.translationVector[1] > -0.05) {
         player.translationVector[1] -= 0.005;
@@ -218,6 +229,26 @@ async function render()
             gl.uniform3fv(thetaLoc, obj.theta);
             gl.uniform3fv(translationLoc, obj.translation);
             gl.drawElements(gl.TRIANGLES, obj.numVertices, gl.UNSIGNED_BYTE, 0);
+        }
+    }
+
+    var i = 0;
+    var removeObstacles = [];
+    for (var obstacle of obstacles) {
+        var bb = obstacle.AABB();
+        if (bb.max[0] < -1.5) {
+            removeObstacles.push(i);
+        }
+        i++;
+    }
+
+    removeObstacles.sort(function(a,b) {
+        return b-a;
+    });
+
+    if (length(removeObstacles > 0)) {
+        for (idx in removeObstacles) {
+            obstacles.remove(idx);
         }
     }
 
