@@ -1,25 +1,20 @@
 "use strict";
 
-function makeRectangularPrism(center, dimensions, rotation, color) {
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function makeRectangularPrism(objclass, center, dimensions, rotation, translationVector, rotationVector, color) {
 
     var theta = [0, 0, 0];
     var translation = [0 ,0 ,0];
-
-    var vertexColors = [
-        color,
-        color,
-        color,
-        color,
-        color,
-        color,
-        color,
-        color
-    ];
 
     const lengthh = dimensions[0] / 2;
     const heighth = dimensions[1] / 2;
     const widthh = dimensions[2] / 2;
 
+
+    // Set up initial vertex positions
     var local_vertices = [
         vec3( -lengthh, -heighth,  widthh ),
         vec3( -lengthh,  heighth,  widthh ),
@@ -44,6 +39,7 @@ function makeRectangularPrism(center, dimensions, rotation, color) {
         vertices.push(vec3( rot_v4[0], rot_v4[1], rot_v4[2] ));
     }
 
+    // The set of triangles making up the shape
     var indices = [
         1, 0, 3,
         3, 2, 1,
@@ -57,6 +53,18 @@ function makeRectangularPrism(center, dimensions, rotation, color) {
         6, 7, 4,
         5, 4, 0,
         0, 1, 5
+    ];
+
+    // Set the color of each vertex
+    var vertexColors = [
+        color,
+        color,
+        color,
+        color,
+        color,
+        color,
+        color,
+        color
     ];
 
     // array element buffer
@@ -80,11 +88,14 @@ function makeRectangularPrism(center, dimensions, rotation, color) {
     }
 
     return {
+        objclass: objclass,
         iBuffer: iBuffer,
         cBuffer: cBuffer,
         vBuffer: vBuffer,
         translation: translation,
+        translationVector: translationVector,
         theta: theta,
+        rotationVector: rotationVector,
         vertices: vertices,
         vertexColors: vertexColors,
         numVertices: 36,
@@ -103,6 +114,20 @@ function makeRectangularPrism(center, dimensions, rotation, color) {
 
 }
 
+function applyTransformations(shape) {
+    shape.translation[0] += shape.translationVector[0];
+    shape.translation[1] += shape.translationVector[1];
+    shape.translation[2] += shape.translationVector[2];
+    shape.theta[0] += shape.rotationVector[0];
+    shape.theta[1] += shape.rotationVector[1];
+    shape.theta[2] += shape.rotationVector[2];
+}
+
+// Note: The frame appears to be 2x2, base object creation on that.
+function makeObstacle() {
+
+}
+
 var canvas;
 var gl;
 
@@ -111,7 +136,14 @@ var translationLoc;
 var vPosition;
 var vColor;
 
-var shapes;
+var frameRate = 30.0;
+var player;
+var playerGravity = -0.025;
+var score = 0;
+var obstacles;
+var border;
+var objGroups;
+var frameCount = 0;
 
 window.onload = function init()
 {
@@ -134,40 +166,63 @@ window.onload = function init()
     thetaLoc = gl.getUniformLocation(program, "theta");
     translationLoc = gl.getUniformLocation(program, "translation");
 
-    shapes = [
-        makeRectangularPrism(vec3(0,0,0), vec3(.1,.1,.1), vec3(0,0,0), vec4(1,0,0,1)),
-        makeRectangularPrism(vec3(-.25,0,0), vec3(.1,.1,.1), vec3(0,0,0), vec4(0,1,0,1)),
-        makeRectangularPrism(vec3(.25,0,0), vec3(.1,.1,.1), vec3(0,0,0), vec4(0,0,1,1))
+    // makeRectangularPrism(objclass, center, dimensions, rotation, translationVector, rotationVector, color) {
+    obstacles = [
+        makeRectangularPrism("cube", vec3(2,0,0.025), vec3(.1,2,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,1,0,1)),
+        makeRectangularPrism("cube", vec3(3,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(4,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(5,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(6,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(7,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(8,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(9,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(10,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1)),
+        makeRectangularPrism("cube", vec3(11,0,0.025), vec3(.1,.1,.1), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,0,1,1))
     ];
+
+    border = [
+        makeRectangularPrism("border", vec3(0,-1,0), vec3(5,.1,2), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(0,0,0,1)),
+        makeRectangularPrism("border", vec3(0,1,0), vec3(5,.1,2), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(0,0,0,1)),
+        makeRectangularPrism("border", vec3(-1,0,0), vec3(.1,5,2), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(0,0,0,1)),
+        makeRectangularPrism("border", vec3(1,0,0), vec3(.1,5,2), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(0,0,0,1))
+    ];
+
+    player = makeRectangularPrism("cube", vec3(0,0,0), vec3(.1,.1,.1), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(1,0,0,1));
 
     render();
 }
 
-function render()
+async function render()
 {
     gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-
-    for (var shape of shapes) {
-
-        shape.theta[1] += 2.0;
-
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shape.iBuffer);
-
-        gl.vertexAttribPointer( vPosition, 3, gl.FLOAT, false, 0, 0 );
-        gl.enableVertexAttribArray( vPosition );
-
-        gl.bindBuffer( gl.ARRAY_BUFFER, shape.cBuffer );
-
-        gl.vertexAttribPointer( vColor, 4, gl.FLOAT, false, 0, 0 );
-        gl.enableVertexAttribArray( vColor );
-
-        gl.bindBuffer( gl.ARRAY_BUFFER, shape.vBuffer );
-
-        gl.uniform3fv(thetaLoc, shape.theta);
-        gl.uniform3fv(translationLoc, shape.translation);
-        gl.drawElements( gl.TRIANGLES, shape.numVertices, gl.UNSIGNED_BYTE, 0 );
+    if (player.translationVector[1] > -0.05) {
+        player.translationVector[1] -= 0.005;
     }
 
+    // Move all objects
+    for (var group of [obstacles, border, [player]]) {
+        for (var obj of group) {
+            applyTransformations(obj);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, obj.vBuffer);
+            gl.vertexAttribPointer(vPosition, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(vPosition);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, obj.cBuffer);
+            gl.vertexAttribPointer(vColor, 4, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(vColor);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.iBuffer);
+
+            gl.uniform3fv(thetaLoc, obj.theta);
+            gl.uniform3fv(translationLoc, obj.translation);
+            gl.drawElements(gl.TRIANGLES, obj.numVertices, gl.UNSIGNED_BYTE, 0);
+        }
+    }
+
+    await sleep(1000/frameRate);
+
+    frameCount += 1;
     requestAnimFrame( render );
 }
