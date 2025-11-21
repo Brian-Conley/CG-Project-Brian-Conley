@@ -13,7 +13,6 @@ function makeRectangularPrism(objclass, center, dimensions, rotation, translatio
     const heighth = dimensions[1] / 2;
     const widthh = dimensions[2] / 2;
 
-
     // Set up initial vertex positions
     var local_vertices = [
         vec3( -lengthh, -heighth,  widthh ),
@@ -101,6 +100,7 @@ function makeRectangularPrism(objclass, center, dimensions, rotation, translatio
         numVertices: 36,
         indices: indices,
         boundingBox: boundingBox,
+        scored: false,
         AABB: function() {
             let bbm = this.boundingBox.min;
             let bbM = this.boundingBox.max;
@@ -123,27 +123,65 @@ function applyTransformations(shape) {
     shape.theta[2] += shape.rotationVector[2];
 }
 
-// Note: The frame appears to be 2x2, base object creation on that.
 function makeObstacle() {
-    var gap = 0.5;
-    var margin = 0.2;
+    const gap = 0.5;
+    const margin = 0.2;
 
-    var gapCenterMax = 1.0 - margin - (gap/2);
-    var gapCenterMin = -1.0 + margin + (gap/2);
+    const minY = -1.0;
+    const maxY =  1.0;
 
-    //Math.floor(Math.random() * (max - min + 1)) + min
-    var gapCenter = Math.random() * (gapCenterMax - gapCenterMin + 1) + gapCenterMin;
-    var topMin = gapCenter + (gap/2);
-    var bottomMax = gapCenter - (gap/2);
-    var topCenter = (1.0 + topMin) / 2;
-    var topHeight = 1.0 - topMin;
-    var bottomCenter = (-1.0 + bottomMax) / 2;
-    var bottomHeight = -1.0 - bottomMax;
+    // find a spot for the gap to go
+    const gapCenterMin = minY + margin + gap/2;
+    const gapCenterMax = maxY - margin - gap/2;
+    const gapCenter = Math.random() * (gapCenterMax - gapCenterMin) + gapCenterMin;
 
-    var top = makeRectangularPrism("obstacle", vec3(3,topCenter,0), vec3(.1,topHeight,.15), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,1,0,1));
-    var bottom = makeRectangularPrism("obstacle", vec3(3,bottomCenter,0), vec3(.1,bottomHeight,.15), vec3(0,0,0), vec3(-.01,0,0), vec3(0,0,0), vec4(0,1,0,1));
+    // top obstacle location
+    const topMin = gapCenter + gap/2;
+    const topHeight = maxY - topMin;
+    const topCenter = topMin + topHeight / 2;
+
+    // bottom obstacle location
+    const bottomMax = gapCenter - gap/2;
+    const bottomHeight = bottomMax - minY;
+    const bottomCenter = minY + bottomHeight / 2;
+
+    // guarantee the height is valid (helps prevent impossible obstacles)
+    const safeTopHeight = Math.max(0, topHeight);
+    const safeBottomHeight = Math.max(0, bottomHeight);
+
+    const top = makeRectangularPrism(
+        "obstacle",
+        vec3(1.25, topCenter, 0),
+        vec3(.1, safeTopHeight, .15),
+        vec3(0,0,0),
+        vec3(-.01,0,0),
+        vec3(0,0,0),
+        vec4(0,1,0,1)
+    );
+    const bottom = makeRectangularPrism(
+        "obstacle",
+        vec3(1.25, bottomCenter, 0),
+        vec3(.1, safeBottomHeight, .15),
+        vec3(0,0,0),
+        vec3(-.01,0,0),
+        vec3(0,0,0),
+        vec4(0,1,0,1)
+    );
+
     obstacles.push(top);
     obstacles.push(bottom);
+}
+
+function isColliding(a,b) {
+    var bba = a.AABB();
+    var bbb = b.AABB();
+
+    return (
+        bba.min[0] < bbb.max[0] && bba.max[0] > bbb.min[0] &&
+        bba.min[1] < bbb.max[1] && bba.max[1] > bbb.min[1]
+        // not needed for game logic
+        // bba.min[2] < bbb.max[2] && bba.max[2] > bbb.min[2]
+    );
 }
 
 var canvas;
@@ -162,6 +200,8 @@ var obstacles;
 var border;
 var objGroups;
 var frameCount = 0;
+var score = 0;
+var scoreElement;
 
 window.onload = function init()
 {
@@ -195,6 +235,20 @@ window.onload = function init()
     ];
 
     player = makeRectangularPrism("cube", vec3(0,0,0), vec3(.1,.1,.1), vec3(0,0,0), vec3(0,0,0), vec3(0,0,0), vec4(1,0,0,1));
+
+    function jump() {
+        player.translationVector[1] = .05;
+    }
+
+    window.addEventListener("keydown", function(event) {
+        switch (event.key) {
+            case 'w':
+                jump();
+                break;
+        }
+    });
+
+    scoreElement = document.getElementById("score-counter");
 
     render();
 }
@@ -236,24 +290,46 @@ async function render()
     var removeObstacles = [];
     for (var obstacle of obstacles) {
         var bb = obstacle.AABB();
+        // Flag obstacles to be removed
         if (bb.max[0] < -1.5) {
             removeObstacles.push(i);
+        }
+        // Detect completed obstacles
+        if (bb.max[0] < 0 && !obstacle.scored) {
+            obstacle.scored = true;
+            score += 0.5;
         }
         i++;
     }
 
+    // Descending order
     removeObstacles.sort(function(a,b) {
         return b-a;
     });
 
-    if (length(removeObstacles > 0)) {
-        for (idx in removeObstacles) {
-            obstacles.remove(idx);
+    if (removeObstacles.length > 0) {
+        for (var idx in removeObstacles) {
+            obstacles.splice(idx, 1);
+        }
+    }
+
+    for (var group of [obstacles, border]) {
+        if (group.length > 0) {
+            for (var obj of group) {
+                if (isColliding(player, obj)) {
+                    obstacles = [];
+                    player.translation[1] = 0;
+                    player.translationVector[1] = 0;
+                    frameCount = 0;
+                    score = 0;
+                    //scoreElement.innerText = Math.floor(score);
+                }
+            }
         }
     }
 
     await sleep(1000/frameRate);
-
+    scoreElement.innerText = Math.floor(score);
     frameCount += 1;
     requestAnimFrame( render );
 }
